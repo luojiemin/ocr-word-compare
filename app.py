@@ -1,27 +1,15 @@
 import streamlit as st
+import pytesseract
+from PIL import Image
 import pandas as pd
 import re
 import requests
 from bs4 import BeautifulSoup
+from io import BytesIO
 
-# 用 ocr.space API 识别图中文字
-def extract_word_pairs_ocrspace(image_bytes):
-    api_key = 'helloworld'
-    url = 'https://api.ocr.space/parse/image'
-    
-    response = requests.post(
-        url,
-        files={"filename": image_bytes},
-        data={
-            "apikey": api_key,
-            "language": "chs",
-            "isOverlayRequired": False
-        }
-    )
-    
-    result = response.json()
-    text = result["ParsedResults"][0]["ParsedText"] if "ParsedResults" in result else ""
-    
+# 识别图片中的单词和释义
+def extract_word_pairs(image):
+    text = pytesseract.image_to_string(image, lang='eng+chi_sim')
     lines = text.split('\n')
     word_defs = []
     for line in lines:
@@ -49,16 +37,17 @@ def query_youdao(word):
     except:
         return '抓取失败'
 
-# Streamlit 界面
-st.title("📘 英文单词图片识别 + 有道释义比对系统")
+# Streamlit 页面
+st.title("📘 英文词汇图像识别与有道释义比对系统")
 
-uploaded_files = st.file_uploader("上传多张词汇图像（支持 jpg/png）", type=["jpg", "png"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("请上传一张或多张词汇图像（支持 jpg/png）", type=["jpg", "png"], accept_multiple_files=True)
 
 if uploaded_files:
     all_entries = []
     for file in uploaded_files:
         st.image(file, caption=file.name, width=200)
-        entries = extract_word_pairs_ocrspace(file)
+        image = Image.open(file)
+        entries = extract_word_pairs(image)
         for entry in entries:
             entry['有道释义'] = query_youdao(entry['单词'])
             entry['是否一致'] = '是' if entry['释义'] in entry['有道释义'] else '否'
@@ -68,9 +57,14 @@ if uploaded_files:
         df = pd.DataFrame(all_entries)
         st.dataframe(df)
 
+        # 正确写法：将 Excel 写入 BytesIO
+        output = BytesIO()
+        df.to_excel(output, index=False, engine='openpyxl')
+        output.seek(0)
+
         st.download_button(
-            label="📥 下载 Excel",
-            data=df.to_excel(index=False, engine='openpyxl'),
-            file_name="识别结果比对.xlsx",
+            label="📥 下载识别结果为 Excel",
+            data=output,
+            file_name="识别比对结果.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
